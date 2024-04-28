@@ -1,0 +1,35 @@
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven {
+            url "https://artifact.bytedance.com/repository/pangle"
+        }
+    }
+}
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+        maven {
+            url "https://artifact.bytedance.com/repository/pangle"
+        }
+    }
+    dependencies {
+        classpath "com.android.tools.build:gradle:4.0.1"
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.5.20'
+    }
+}
+
+rootProject.buildDir = '../build'
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+}
+subprojects {
+    project.evaluationDependsOn(':app')
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}

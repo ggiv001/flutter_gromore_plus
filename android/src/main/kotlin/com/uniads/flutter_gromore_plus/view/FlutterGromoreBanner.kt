@@ -1,0 +1,190 @@
+package com.uniads.flutter_gromore_plus.view
+
+import android.app.Activity
+import android.content.Context
+import android.graphics.Color
+import android.util.Log
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import com.bytedance.sdk.openadsdk.*
+import com.bytedance.sdk.openadsdk.mediation.ad.IMediationNativeAdInfo
+import com.bytedance.sdk.openadsdk.mediation.ad.MediationAdSlot
+import com.bytedance.sdk.openadsdk.mediation.ad.MediationNativeToBannerListener
+import io.flutter.plugin.common.BinaryMessenger
+import io.flutter.plugin.platform.PlatformView
+import com.uniads.flutter_gromore_plus.constants.FlutterGromoreConstants
+import com.uniads.flutter_gromore_plus.event.AdEventType
+import com.uniads.flutter_gromore_plus.utils.DataReportUtil
+import com.uniads.flutter_gromore_plus.utils.Utils
+
+
+class FlutterGromoreBanner(
+    private val context: Context,
+    private val activity: Activity,
+    viewId: Int,
+    creationParams: Map<String?, Any?>,
+    binaryMessenger: BinaryMessenger
+) :
+    FlutterGromoreBase(binaryMessenger, "${FlutterGromoreConstants.bannerTypeId}/$viewId"),
+    PlatformView,
+    TTAdDislike.DislikeInteractionCallback, TTNativeExpressAd.ExpressAdInteractionListener,
+    TTAdNative.NativeExpressAdListener {
+
+    private val TAG: String = this::class.java.simpleName
+
+    // 信息流广告容器
+    private var container: FrameLayout = FrameLayout(activity)
+
+    // 广告model
+    private var bannerAd: TTNativeExpressAd? = null
+
+    // 广告ID
+    private var adUnitId: String = ""
+
+    private var layoutParams: FrameLayout.LayoutParams = FrameLayout.LayoutParams(
+        ViewGroup.LayoutParams.WRAP_CONTENT,
+        ViewGroup.LayoutParams.WRAP_CONTENT
+    )
+
+    init {
+        // 广告位id
+        val adUnitId = creationParams["adUnitId"] as String
+        this.adUnitId = adUnitId
+        // 默认宽度为屏幕宽度
+        val width: Int = if (creationParams["width"] == null) {
+            Utils.getScreenWidthInPx(context)
+        } else {
+            val _width = creationParams["width"] as? Double ?:300
+            Utils.dp2px(context,  _width.toFloat())
+        }
+
+        // 默认高度为150
+        val height = creationParams["height"] as? Double ?: 150
+        require(adUnitId.isNotEmpty())
+
+        val useSurfaceView = creationParams["useSurfaceView"] as? Boolean ?: true
+
+        val adNativeLoader = TTAdSdk.getAdManager().createAdNative(activity)
+
+        val adslot = AdSlot.Builder()
+            .setCodeId(adUnitId)
+            .setImageAcceptedSize(
+                width,
+                Utils.dp2px(context, height.toFloat())
+            )
+            .setExpressViewAcceptedSize(width.toFloat(), height.toFloat())
+//            .setAdCount(1)
+            .setMediationAdSlot(
+                MediationAdSlot.Builder()
+                    .setUseSurfaceView(useSurfaceView)
+                    .setMediationNativeToBannerListener(object : MediationNativeToBannerListener() {
+                        override fun getMediationBannerViewFromNativeAd(p0: IMediationNativeAdInfo?): View? {
+                            return null
+//                            return MediationNativeToBannerUtils.getCSJMBannerViewFromNativeAd(p0, activity);
+                        }
+                    }).build()
+            )
+            .build()
+
+        layoutParams.gravity = android.view.Gravity.CENTER_VERTICAL
+        adNativeLoader.loadBannerExpressAd(adslot, this)
+
+        container.layoutParams = layoutParams
+        initAd()
+    }
+
+    private fun removeAdView() {
+        Log.e(TAG, "removeAdView")
+        container.removeAllViews()
+        bannerAd?.destroy()
+        bannerAd = null
+    }
+
+    override fun getView(): View {
+        return container
+    }
+
+    override fun dispose() {
+        removeAdView()
+    }
+
+    override fun onAdClicked(p0: View?, p1: Int) {
+        Log.d(TAG, "onAdClick")
+        postMessage("onAdClick")
+        DataReportUtil.report(adUnitId, AdEventType.Banner, "onAdClick", null)
+    }
+
+    override fun onAdShow(p0: View?, p1: Int) {
+        Log.d(TAG, "onAdShow")
+        postMessage("onAdShow")
+        DataReportUtil.report(adUnitId, AdEventType.Banner, "onAdShow", null)
+
+        container.apply {
+            // 计算渲染后的高度
+            measure(
+                View.MeasureSpec.makeMeasureSpec(
+                    Utils.getScreenWidthInPx(context),
+                    View.MeasureSpec.UNSPECIFIED
+                ),
+                View.MeasureSpec.makeMeasureSpec(
+                    Utils.getScreenHeightInPx(context),
+                    View.MeasureSpec.UNSPECIFIED
+                )
+            )
+            Log.d(TAG, "measuredHeight - $measuredHeight")
+        }
+    }
+
+    override fun onRenderFail(p0: View?, p1: String?, p2: Int) {
+        Log.d(TAG, "onRenderFail - $p2 - $p1")
+        postMessage("onRenderFail")
+        DataReportUtil.report(adUnitId, AdEventType.Banner, "onRenderFail", null)
+    }
+
+    override fun onRenderSuccess(p0: View?, width: Float, height: Float) {
+        Log.d(TAG, "onRenderSuccess $width $height")
+
+        val ad = bannerAd?.expressAdView
+        ad?.let {
+            (it as? ViewGroup)?.removeView(ad)
+            container.removeAllViews()
+            container.setBackgroundColor(Color.WHITE)
+            container.addView(ad)
+        }
+
+        postMessage("onRenderSuccess")
+        DataReportUtil.report(adUnitId, AdEventType.Banner, "onRenderSuccess", null)
+    }
+
+
+    override fun onCancel() {}
+
+    override fun onShow() {}
+
+    // 用户选择不喜欢原因后，移除广告展示
+    override fun onSelected(p0: Int, p1: String?, p2: Boolean) {
+        Log.d(TAG, "dislike-onSelected")
+        postMessage("onSelected")
+        DataReportUtil.report(adUnitId, AdEventType.Banner, "onSelected", null)
+        removeAdView()
+    }
+
+    override fun initAd() {}
+
+    override fun onError(p0: Int, p1: String?) {
+        Log.d(TAG, "onLoadError - $p0 - $p1")
+        postMessage("onLoadError")
+    }
+
+    override fun onNativeExpressAdLoad(ads: MutableList<TTNativeExpressAd>?) {
+        ads?.let {
+            val ad = it.first()
+
+            bannerAd = ad
+            ad.setDislikeCallback(activity, this)
+            ad.setExpressInteractionListener(this)
+            ad.render()
+        }
+    }
+}
